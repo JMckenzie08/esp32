@@ -5,33 +5,44 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 Car Controller</title>
     <style>
-        body { text-align: center; font-family: Arial, sans-serif; }
-        button { font-size: 20px; padding: 10px; margin: 10px; }
+        body { text-align: center; font-family: Arial, sans-serif; overflow: hidden; }
+        button { font-size: 20px; padding: 10px; margin: 10px; width: 150px; }
         input { width: 80%; }
     </style>
 </head>
 <body>
     <h1>ESP32 Car Controller</h1>
-    <p>Use the slider or Xbox controller to control the throttle. Sounds play on your phone.</p>
+    <p>Use the throttle & steering sliders or Xbox controller to drive the car.</p>
 
+    <button onclick="enableAudio()">Start Engine</button>
     <button onclick="connectToESP32()">Connect to ESP32</button>
-    
+
     <br><br>
     <label>Throttle: <span id="throttleValue">0</span>%</label>
     <input type="range" id="throttle" min="0" max="100" step="1" oninput="sendThrottle(this.value)">
 
     <br><br>
-    <button onclick="sendSteer(25)">⬅ Left</button>
-    <button onclick="sendSteer(75)">Right ➡</button>
+    <label>Steering: <span id="steeringValue">50</span>%</label>
+    <input type="range" id="steering" min="0" max="100" step="1" oninput="sendSteer(this.value)">
+
+    <p id="xboxStatus">🎮 Xbox Controller: Not Connected</p>
 
     <!-- Engine Sound Files -->
-    <audio id="idle" src="https://your-username.github.io/esp32-car-control/idle.mp3" preload="auto" loop></audio>
-    <audio id="rev" src="https://your-username.github.io/esp32-car-control/rev.mp3" preload="auto" loop></audio>
-    <audio id="max" src="https://your-username.github.io/esp32-car-control/max_rpm.mp3" preload="auto" loop></audio>
+    <audio id="idle" src="https://jmckenzie08.github.io/esp32-car-control/sounds/idle.wav" preload="auto" loop></audio>
+    <audio id="rev" src="https://jmckenzie08.github.io/esp32-car-control/sounds/rev.wav" preload="auto" loop></audio>
+    <audio id="max" src="https://jmckenzie08.github.io/esp32-car-control/sounds/max_rpm.wav" preload="auto" loop></audio>
+    <audio id="limiter" src="https://jmckenzie08.github.io/esp32-car-control/sounds/limiter.wav" preload="auto"></audio>
 
     <script>
-        let esp32IP = "http://192.168.4.1"; // Change this if ESP32 is in home Wi-Fi mode
+        let esp32IP = "http://192.168.4.1"; 
         let xboxConnected = false;
+        let lastThrottleZone = "idle";
+
+        function enableAudio() {
+            document.getElementById("idle").play();
+            document.getElementById("idle").pause();
+            alert("Engine sound enabled! Move throttle to change RPM.");
+        }
 
         async function connectToESP32() {
             alert("Ensure your phone is connected to ESP32's Wi-Fi, then use this page.");
@@ -39,44 +50,73 @@
 
         async function sendThrottle(value) {
             document.getElementById("throttleValue").innerText = value;
+            document.getElementById("throttle").value = value;
+            
             fetch(esp32IP + "/throttle?value=" + value);
             updateEngineSound(value);
         }
 
         async function sendSteer(value) {
+            document.getElementById("steeringValue").innerText = value;
+            document.getElementById("steering").value = value;
             fetch(esp32IP + "/steer?value=" + value);
         }
 
         function updateEngineSound(throttle) {
-            document.getElementById("idle").pause();
-            document.getElementById("rev").pause();
-            document.getElementById("max").pause();
+            let idle = document.getElementById("idle");
+            let rev = document.getElementById("rev");
+            let max = document.getElementById("max");
+            let limiter = document.getElementById("limiter");
 
-            if (throttle == 0) {
-                document.getElementById("idle").play();
-            } else if (throttle < 50) {
-                document.getElementById("rev").play();
-            } else {
-                document.getElementById("max").play();
+            let newZone = "idle"; 
+
+            if (throttle >= 90) {
+                newZone = "limiter";
+            } else if (throttle >= 70) {
+                newZone = "max";
+            } else if (throttle > 10) {
+                newZone = "rev";
+            }
+
+            if (newZone !== lastThrottleZone) {
+                idle.pause();
+                rev.pause();
+                max.pause();
+                limiter.pause();
+
+                if (newZone === "idle") idle.play();
+                if (newZone === "rev") rev.play();
+                if (newZone === "max") max.play();
+                if (newZone === "limiter") {
+                    max.play();
+                    limiter.play();
+                }
+
+                lastThrottleZone = newZone;
             }
         }
 
         // 🎮 Xbox Controller Support
-        window.addEventListener("gamepadconnected", (event) => {
+        window.addEventListener("gamepadconnected", () => {
             xboxConnected = true;
-            alert("Xbox controller connected!");
-            gameLoop();
+            document.getElementById("xboxStatus").innerText = "🎮 Xbox Controller: Connected!";
+            requestAnimationFrame(gameLoop);
         });
 
         function gameLoop() {
             if (!xboxConnected) return;
             let gamepad = navigator.getGamepads()[0];
             if (gamepad) {
-                let throttleValue = Math.round((gamepad.buttons[7].value) * 100); // Right Trigger (Throttle)
-                let steerValue = Math.round((gamepad.axes[0] + 1) * 50); // Left Joystick X-axis (Steering)
-                
+                let throttleValue = Math.round((gamepad.buttons[7].value) * 100);
+                let steerValue = Math.round((gamepad.axes[0] + 1) * 50);
+
                 sendThrottle(throttleValue);
                 sendSteer(steerValue);
+
+                document.getElementById("throttle").value = throttleValue;
+                document.getElementById("throttleValue").innerText = throttleValue;
+                document.getElementById("steering").value = steerValue;
+                document.getElementById("steeringValue").innerText = steerValue;
             }
             requestAnimationFrame(gameLoop);
         }
